@@ -18,6 +18,7 @@ global pmain "H:\My Drive\Research\Proesa - 22-1002-PahoElasSsb"
 cd "$pmain"
 
 global pcode "$pmain\Code"
+global pcodeM "$pcode\Model"
 global path  "$pmain\Data\Output"
 global presu "$pmain\Resu"
 global prtab "$presu\Tab"

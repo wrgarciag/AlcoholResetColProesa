@@ -7,7 +7,7 @@
 *********************
 
 
-*log using "C:\Users\wgarcia\Universidad Icesi (@icesi.edu.co)\Proesa - *22-1002-PahoElasSsb\Resu\SSBElasticityPaperrevised_log.log", append
+log using "$prtab\hogar_duvm.log", append
 
 use "$path\DataEstimates5.dta",clear
 
@@ -135,23 +135,35 @@ rename luv4 luvwat
 
 rename luv5 luvday
 
+encode REGION, gen(xregion)
 
+* Deprecated
 *drop if totalexp==0
+*gen lnexp=ln(exptotal)
+
+*Testing for spatial variation in unit values
+local luvs "luvssb luvbee luvspi luvwat luvday" 
+
+foreach i of local luvs {
+	anova `i' i.psu
+	*reg `i' i.psu
+}
 
 * Modelo 1
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100) hgroup(Tercil)
 
 * Modelo 2 Sin censura
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(x3) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(0) dregres(1) boot(100)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(0) dregres(0) boot(100)
 
 * Modelo 3 Sin Fex
 gen fex2=1
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(fex2) cluster(psu) region(x3) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(fex2) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(0) boot(100)
 
-* Modelo 4 Efectos Regionales
+* Modelo 4 Sin region
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(0) boot(100)
 
-
-* Modelo 4 Solo codificado
+* Modelo 5 Solo codificado
+do "$pcodeM\SSBElasticityPaperRevised_hogar_codi_duvm.do"
 
 log close
 

@@ -162,7 +162,7 @@ gen maxedu = x6
 gen sgp1 = x7
 gen sgp2 = x8 
 gen sgp3 = x9
-gen region = x3
+gen region = REGION
 
 *Testing for spatial variation in unit values
 *regress luvcig i.clust
@@ -171,7 +171,7 @@ gen region = x3
 ************************************
 * estimating own- and cross-price elasticities using Deaton method for multiple goods
 ************************************
-cd "$pcode"
+cd "$pcodeM\Tobacconomics"
 
 preserve
 do "allindia.do"
