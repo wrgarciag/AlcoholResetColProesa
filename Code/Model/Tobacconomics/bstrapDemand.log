@@ -1,0 +1,992 @@
+-----------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  H:\My Drive\Research\Proesa - 22-1002-PahoElasSsb\Code\Model\Tobacconomics\bstrapDemand.log
+  log type:  text
+ opened on:  10 Apr 2023, 08:01:39
+
+. drop _all
+
+. vecmx xep vxep
+
+. set obs 1
+Number of observations (_N) was 0, now 1.
+
+. gen reps=0
+
+. global nels=$ng1*$ng1
+
+. global nmc=100 // the simulation is repeated 1000 times
+
+. cap program drop vtodat
+
+. program define vtodat
+  1. local ic=1
+  2. while `ic' <= $nels {
+  3. gen e`ic'=vxep[`ic',1]
+  4. local ic=`ic'+1
+  5. }
+  6. end
+
+. vtodat
+
+. save bootstrap.dta, replace
+file bootstrap.dta saved
+
+. drop _all
+
+. 
+. **** Ojo dummies de region
+. /*
+> *This should be used only if the region dummies in allindia.do were used
+> cap program drop purge
+> program define purge
+> local ig=1
+> while `ig' <= $ngds {
+> qui regress y0c`ig' regiond*
+> 
+> predict tm, resid
+> replace y0c`ig'=tm
+> drop tm
+> qui regress y1c`ig' regiond*
+> predict tm, resid
+> replace y1c`ig'=tm
+> drop tm
+> local ig=`ig'+1
+> }
+> end
+> */
+. 
+. cap program drop mkns
+
+. program define mkns
+  1. local ig=1
+  2. while `ig' <= $ngds {
+  3. replace n0c`ig'=1/n0c`ig'
+  4. replace n1c`ig'=1/n1c`ig'
+  5. qui summ n0c`ig'
+  6. matrix n0[`ig',1]=(_result(3))^(-1)
+  7. qui summ n1c`ig'
+  8. matrix n1[`ig',1]=(_result(3))^(-1)
+  9. drop n0c`ig' n1c`ig'
+ 10. local ig=`ig'+1
+ 11. }
+ 12. end
+
+. 
+. cap program drop mkcov
+
+. program def mkcov
+  1. local ir=1
+  2. while `ir' <= $ngds {
+  3. local ic=1
+  4. while `ic' <= $ngds {
+  5. qui corr y1c`ir' y1c`ic', cov
+  6. matrix s[`ir',`ic']=_result(4)
+  7. qui corr y1c`ir' y0c`ic', cov
+  8. matrix r[`ir',`ic']=_result(4)
+  9. local ic=`ic'+1
+ 10. }
+ 11. local ir=`ir'+1
+ 12. }
+ 13. end
+
+. 
+. cap program drop fixmat
+
+. program def fixmat
+  1. matrix def sf=s
+  2. matrix def rf=r
+  3. local ig=1
+  4. while `ig' <= $ngds {
+  5.         matrix sf[`ig',`ig']=sf[`ig',`ig']-ome[`ig',1]/n1[`ig',1]
+  6. matrix rf[`ig',`ig']=rf[`ig',`ig']-lam[`ig',1]/n0[`ig',1]
+  7. local ig=`ig'+1
+  8. }
+  9. end
+
+. 
+. cap program drop mkels
+
+. program define mkels
+  1. matrix cmx=bhat'
+  2. matrix cmx=dxi*cmx
+  3. matrix cmx1=dxi*dwbar
+  4. matrix cmx=iden-cmx
+  5. matrix cmx=cmx+cmx1
+  6. matrix psi=inv(cmx)
+  7. matrix theta=bhat'*psi
+  8. display("Theta matrix")
+  9. matrix list theta
+ 10. matrix ep=bhat'
+ 11. matrix ep=idwbar*ep
+ 12. matrix ep=ep-iden
+ 13. matrix ep=ep*psi
+ 14. end
+
+. 
+. cap program drop complet
+
+. program define complet
+  1. *First extending theta
+. matrix atm=theta*itm
+  2. matrix atm=-1*atm
+  3. matrix atm=atm-b0
+  4. matrix xtheta=theta,atm
+  5. matrix atm=xtheta'
+  6. matrix atm=atm*itm
+  7. matrix atm=atm'
+  8. matrix xtheta=xtheta\atm
+  9. *Extending the diagonal matrices
+. matrix wlast=wbar'*itm
+ 10. matrix won=(1)
+ 11. matrix wlast=won-wlast
+ 12. matrix xwbar=wbar\wlast
+ 13. matrix dxwbar=diag(xwbar)
+ 14. matrix idxwbar=syminv(dxwbar)
+ 15. matrix b1last=(0.25)
+ 16. matrix xb1=b1\b1last
+ 17. matrix b0last=b0'*itm
+ 18. matrix b0last=-1*b0last
+ 19. matrix xb0=b0\b0last
+ 20. matrix xe=itm1-xb1
+ 21. matrix tm=idxwbar*xb0
+ 22. matrix xe=xe+tm
+ 23. 
+. matrix tm=xe'
+ 24. matrix xxi=itm1-xb1
+ 25. matrix xxi=dxwbar*xxi
+ 26. matrix xxi=xxi+xb0
+ 27. matrix tm=diag(xb1)
+ 28. matrix tm=syminv(tm)
+ 29. matrix xxi=tm*xxi
+ 30. matrix dxxi=diag(xxi)
+ 31. *Extending psi
+. matrix xpsi=dxxi*xtheta
+ 32. matrix xpsi=xpsi+iden1
+ 33. matrix atm=dxxi*dxwbar
+ 34. matrix atm=atm+iden1
+ 35. matrix atm=syminv(atm)
+ 36. matrix xpsi=atm*xpsi
+ 37. matrix ixpsi=inv(xpsi)
+ 38. *Extending bhat & elasticity matrix
+. matrix xbhatp=xtheta*ixpsi
+ 39. matrix xep=idxwbar*xbhatp
+ 40. matrix xep=xep-iden1
+ 41. matrix xep=xep*xpsi
+ 42. end
+
+. 
+. cap program drop bootindi
+
+. program define bootindi
+  1. local expno=1
+  2. while `expno' <= $nmc {
+  3. display("Simulation Number `expno'")
+  4. quietly {
+  5. use tempclus.dta
+  6. bsample _N
+  7. /*
+> qui tab region, gen(regiond)
+> *qui tab subrnd, gen(quard)
+> purge
+> drop regiond*
+> */
+. matrix define n0=J($ngds,1,0)
+  8. matrix define n1=J($ngds,1,0)
+  9. *Averaging (harmonically) numbers of obs over clusters
+. mkns
+ 10. *Making the intercluster variance and covariance matrices
+. *This is done in pairs because of the missing values
+. matrix s=J($ngds,$ngds,0)
+ 11. matrix r=J($ngds,$ngds,0)
+ 12. 
+. mkcov
+ 13. *We don't need the data any more
+. drop _all
+ 14. *Making OLS estimates
+. matrix bols=syminv(s)
+ 15. matrix bols=bols*r
+ 16. *Corrections for measurement error
+. fixmat
+ 17. matrix invs=syminv(sf)
+ 18. matrix bhat=invs*rf
+ 19. global ng1=$ngds+1
+ 20. matrix iden=I($ngds)
+ 21. matrix iden1=I($ng1)
+ 22. matrix itm=J($ngds,1,1)
+ 23. matrix itm1=J($ng1,1,1)
+ 24. matrix dxi=diag(xi)
+ 25. matrix dwbar=diag(wbar)
+ 26. matrix idwbar=syminv(dwbar)
+ 27. mkels
+ 28. **Completing the system by filling out the matrices
+. ** Gives standard errors for elasticities without symmetry restrictions
+. complet //Drop this command if the intend is to estimate symmetry constrained standard errors
+ 29. *If it is only the unconstrainted estimates that we are intereted in there is
+. *no need to run the code from this point till the next command complet
+. **Calculating symmetry restricted estimators
+. vecmx bhat vbhat
+ 30. ** R matrix for restrictions
+. lmx $ngds llx
+ 31. commx $ngds k
+ 32. global ng2=$ngds*$ngds
+ 33. matrix bigi=I($ng2)
+ 34. matrix k=bigi-k
+ 35. matrix r=llx*k
+ 36. matrix drop k
+ 37. matrix drop bigi
+ 38. matrix drop llx
+ 39. ** r vector for restrictions, called rh
+. matrix rh=b0#wbar
+ 40. matrix rh=r*rh
+ 41. matrix rh=-1*rh
+ 42. **doing the constrained estimation
+. matrix iss=iden#invs
+ 43. matrix rp=r'
+ 44. matrix iss=iss*rp
+ 45. matrix inn=r*iss
+ 46. matrix inn=syminv(inn)
+ 47. matrix inn=iss*inn
+ 48. 
+. matrix dis=r*vbhat
+ 49. matrix dis=rh-dis
+ 50. matrix dis=inn*dis
+ 51. matrix vbtild=vbhat+dis
+ 52. unvecmx vbtild btild
+ 53. **going back to get elasticities and complete sytem
+. matrix bhat=btild
+ 54. mkels
+ 55. ** Gives standard errors for elasticity with symmetry restrictions
+. complet
+ 56. vecmx xep vxep
+ 57. set obs 1
+ 58. gen reps=`expno'
+ 59. vtodat
+ 60. append using bootstrap.dta
+ 61. save bootstrap.dta, replace
+ 62. drop _all
+ 63. local expno=`expno'+1
+ 64. }
+ 65. sleep 900
+ 66. }
+ 67. end
+
+. bootindi
+Simulation Number 1
+Simulation Number 2
+Simulation Number 3
+Simulation Number 4
+Simulation Number 5
+Simulation Number 6
+Simulation Number 7
+Simulation Number 8
+Simulation Number 9
+Simulation Number 10
+Simulation Number 11
+Simulation Number 12
+Simulation Number 13
+Simulation Number 14
+Simulation Number 15
+Simulation Number 16
+Simulation Number 17
+Simulation Number 18
+Simulation Number 19
+Simulation Number 20
+Simulation Number 21
+Simulation Number 22
+Simulation Number 23
+Simulation Number 24
+Simulation Number 25
+Simulation Number 26
+Simulation Number 27
+Simulation Number 28
+Simulation Number 29
+Simulation Number 30
+Simulation Number 31
+Simulation Number 32
+Simulation Number 33
+Simulation Number 34
+Simulation Number 35
+Simulation Number 36
+Simulation Number 37
+Simulation Number 38
+Simulation Number 39
+Simulation Number 40
+Simulation Number 41
+Simulation Number 42
+Simulation Number 43
+Simulation Number 44
+Simulation Number 45
+Simulation Number 46
+Simulation Number 47
+Simulation Number 48
+Simulation Number 49
+Simulation Number 50
+Simulation Number 51
+Simulation Number 52
+Simulation Number 53
+Simulation Number 54
+Simulation Number 55
+Simulation Number 56
+Simulation Number 57
+Simulation Number 58
+Simulation Number 59
+Simulation Number 60
+Simulation Number 61
+Simulation Number 62
+Simulation Number 63
+Simulation Number 64
+Simulation Number 65
+Simulation Number 66
+Simulation Number 67
+Simulation Number 68
+Simulation Number 69
+Simulation Number 70
+Simulation Number 71
+Simulation Number 72
+Simulation Number 73
+Simulation Number 74
+Simulation Number 75
+Simulation Number 76
+Simulation Number 77
+Simulation Number 78
+Simulation Number 79
+Simulation Number 80
+Simulation Number 81
+Simulation Number 82
+Simulation Number 83
+Simulation Number 84
+Simulation Number 85
+Simulation Number 86
+Simulation Number 87
+Simulation Number 88
+Simulation Number 89
+Simulation Number 90
+Simulation Number 91
+Simulation Number 92
+Simulation Number 93
+Simulation Number 94
+Simulation Number 95
+Simulation Number 96
+Simulation Number 97
+Simulation Number 98
+Simulation Number 99
+Simulation Number 100
+
+. use bootstrap.dta
+
+. display("Monte Carlo results")
+Monte Carlo results
+
+. summ
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+        reps |        101          50    29.30017          0        100
+          e1 |        101   -.4538526    .0243196  -.4987135  -.3977713
+          e2 |        101   -2.192437    .8122328  -4.689061  -.5287059
+          e3 |        101    .4014232    .0994111   .1105086   .6346081
+          e4 |        101   -.4622857    .0702025   -.638648  -.3098067
+-------------+---------------------------------------------------------
+          e5 |        101   -.0111381     .008652   -.035033   .0070704
+          e6 |        101    2.65e-14    1.76e-11  -4.65e-11   4.27e-11
+          e7 |        101   -.0570908    .0220207  -.1243862  -.0118215
+          e8 |        101    1.581008    .7086531   .1862342   4.979659
+          e9 |        101   -.2083516    .0764317  -.5102084  -.0448942
+-------------+---------------------------------------------------------
+         e10 |        101    -.057814    .0415212  -.1391904   .0615152
+         e11 |        101    .0234244    .0091212   .0025127   .0464686
+         e12 |        101    3.06e-11    1.13e-11   6.04e-12   7.71e-11
+         e13 |        101      .06028    .0111997   .0275131   .0860714
+         e14 |        101    -.849888    .3142131  -2.088273  -.1791194
+-------------+---------------------------------------------------------
+         e15 |        101   -.5079776    .0861942   -.744557  -.2702055
+         e16 |        101   -.0924531    .0382805  -.1857345   .0166737
+         e17 |        101   -.0288971    .0058318  -.0405513  -.0146525
+         e18 |        101    5.94e-12    5.56e-12  -8.95e-12   2.21e-11
+         e19 |        101   -.0342799    .0054658  -.0479117  -.0224024
+-------------+---------------------------------------------------------
+         e20 |        101   -.1742149    .1196378  -.4076102   .1683315
+         e21 |        101   -.0808523    .0267665  -.1463669  -.0037489
+         e22 |        101   -1.651717    .0478213   -1.78238  -1.546141
+         e23 |        101    .0357814    .0024513   .0296854   .0408295
+         e24 |        101    1.16e-12    3.21e-12  -7.78e-12   1.05e-11
+-------------+---------------------------------------------------------
+         e25 |        101     -.05189    .0256384  -.1214674   .0010341
+         e26 |        101    2.373511    .9884365   .1071329   4.906917
+         e27 |        101    -.992579     .156061  -1.306528  -.6145843
+         e28 |        101    1.271531    .0928783   1.040639   1.463736
+         e29 |        101   -.3099025     .013527   -.341059  -.2789348
+-------------+---------------------------------------------------------
+         e30 |        101   -8.21e-11    2.55e-11  -1.47e-10  -2.00e-11
+         e31 |        101    .0179615    .0264782  -.0407268   .0917841
+         e32 |        101   -2.032415    .6863662  -4.836303  -.4701126
+         e33 |        101    .0164606    .0824707  -.1848383    .258067
+         e34 |        101   -.0670461    .0637803  -.2578586   .1033732
+-------------+---------------------------------------------------------
+         e35 |        101    .0354603     .013243   .0013149   .0704072
+         e36 |        101          -1           0         -1         -1
+
+. summ,d
+
+                            reps
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%            1              0
+ 5%            5              1
+10%           10              2       Obs                 101
+25%           25              3       Sum of wgt.         101
+
+50%           50                      Mean                 50
+                        Largest       Std. dev.      29.30017
+75%           75             97
+90%           90             98       Variance          858.5
+95%           95             99       Skewness              0
+99%           99            100       Kurtosis       1.799765
+
+                             e1
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.4940169      -.4987135
+ 5%    -.4919374      -.4940169
+10%    -.4846355      -.4932813       Obs                 101
+25%    -.4716224      -.4928479       Sum of wgt.         101
+
+50%    -.4562138                      Mean          -.4538526
+                        Largest       Std. dev.      .0243196
+75%    -.4363362      -.4045358
+90%    -.4195473      -.4025856       Variance       .0005914
+95%    -.4108061      -.3983424       Skewness       .3270999
+99%    -.3983424      -.3977713       Kurtosis       2.467971
+
+                             e2
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -4.349146      -4.689061
+ 5%    -3.627727      -4.349146
+10%    -3.108178       -4.32896       Obs                 101
+25%    -2.590054      -4.136664       Sum of wgt.         101
+
+50%     -2.17004                      Mean          -2.192437
+                        Largest       Std. dev.      .8122328
+75%    -1.637512      -.7663783
+90%    -1.249221      -.5966104       Variance       .6597221
+95%    -.9758874      -.5410958       Skewness      -.5314584
+99%    -.5410958      -.5287059       Kurtosis       3.652872
+
+                             e3
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .1731924       .1105086
+ 5%     .2431508       .1731924
+10%     .2772982       .1837082       Obs                 101
+25%     .3379924       .2035292       Sum of wgt.         101
+
+50%     .3960076                      Mean           .4014232
+                        Largest       Std. dev.      .0994111
+75%      .476193       .5659409
+90%     .5209052       .5779533       Variance       .0098826
+95%     .5407726       .6031349       Skewness       -.266834
+99%     .6031349       .6346081       Kurtosis       2.913162
+
+                             e4
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.6106297       -.638648
+ 5%    -.5770005      -.6106297
+10%    -.5637627      -.5942626       Obs                 101
+25%    -.5073397      -.5788833       Sum of wgt.         101
+
+50%    -.4575553                      Mean          -.4622857
+                        Largest       Std. dev.      .0702025
+75%    -.4164394      -.3366218
+90%    -.3659629        -.33162       Variance       .0049284
+95%    -.3490573      -.3241512       Skewness      -.1285789
+99%    -.3241512      -.3098067       Kurtosis       2.565804
+
+                             e5
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.0347606       -.035033
+ 5%    -.0270763      -.0347606
+10%     -.021494      -.0308481       Obs                 101
+25%    -.0162639      -.0304456       Sum of wgt.         101
+
+50%     -.011048                      Mean          -.0111381
+                        Largest       Std. dev.       .008652
+75%    -.0053821       .0034599
+90%    -.0020801       .0040448       Variance       .0000749
+95%     .0025557       .0055621       Skewness      -.4232928
+99%     .0055621       .0070704       Kurtosis       3.199831
+
+                             e6
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -4.20e-11      -4.65e-11
+ 5%    -3.34e-11      -4.20e-11
+10%    -2.30e-11      -4.16e-11       Obs                 101
+25%    -9.35e-12      -3.97e-11       Sum of wgt.         101
+
+50%     1.61e-12                      Mean           2.65e-14
+                        Largest       Std. dev.      1.76e-11
+75%     1.15e-11       3.00e-11
+90%     2.24e-11       3.18e-11       Variance       3.10e-22
+95%     2.73e-11       3.21e-11       Skewness      -.3780598
+99%     3.21e-11       4.27e-11       Kurtosis       3.130562
+
+                             e7
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.1153749      -.1243862
+ 5%    -.0960777      -.1153749
+10%    -.0828758      -.1151124       Obs                 101
+25%    -.0680656      -.1099874       Sum of wgt.         101
+
+50%    -.0565653                      Mean          -.0570908
+                        Largest       Std. dev.      .0220207
+75%    -.0418762      -.0184727
+90%    -.0313366      -.0139094       Variance       .0004849
+95%    -.0236355      -.0125838       Skewness      -.5300712
+99%    -.0125838      -.0118215       Kurtosis        3.63749
+
+                             e8
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .2629569       .1862342
+ 5%     .6964658       .2629569
+10%     .9521528       .4318601       Obs                 101
+25%     1.192274        .594662       Sum of wgt.         101
+
+50%     1.428665                      Mean           1.581008
+                        Largest       Std. dev.      .7086531
+75%     1.813931       3.111644
+90%     2.408387       3.493246       Variance       .5021891
+95%     2.892534        3.97847       Skewness       1.748738
+99%      3.97847       4.979659       Kurtosis       8.453954
+
+                             e9
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.4051661      -.5102084
+ 5%    -.3296913      -.4051661
+10%    -.2967682      -.3937819       Obs                 101
+25%    -.2470595       -.388844       Sum of wgt.         101
+
+50%    -.2024334                      Mean          -.2083516
+                        Largest       Std. dev.      .0764317
+75%    -.1580947      -.0897815
+90%    -.1246006      -.0758107       Variance       .0058418
+95%    -.1034408      -.0696427       Skewness      -.9042559
+99%    -.0696427      -.0448942       Kurtosis       4.898209
+
+                             e10
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     -.137136      -.1391904
+ 5%    -.1170793       -.137136
+10%    -.1068246      -.1315831       Obs                 101
+25%    -.0867592      -.1232262       Sum of wgt.         101
+
+50%    -.0642313                      Mean           -.057814
+                        Largest       Std. dev.      .0415212
+75%    -.0323348       .0356854
+90%    -.0031271       .0363262       Variance        .001724
+95%     .0188924       .0376877       Skewness       .5317008
+99%     .0376877       .0615152       Kurtosis       2.963082
+
+                             e11
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .0043834       .0025127
+ 5%     .0077171       .0043834
+10%     .0114273       .0048656       Obs                 101
+25%     .0173981        .005794       Sum of wgt.         101
+
+50%     .0233435                      Mean           .0234244
+                        Largest       Std. dev.      .0091212
+75%     .0292684       .0419158
+90%     .0355568       .0421058       Variance       .0000832
+95%     .0413565       .0427701       Skewness       .1069268
+99%     .0427701       .0464686       Kurtosis        2.94193
+
+                             e12
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     1.17e-11       6.04e-12
+ 5%     1.44e-11       1.17e-11
+10%     1.81e-11       1.17e-11       Obs                 101
+25%     2.27e-11       1.28e-11       Sum of wgt.         101
+
+50%     2.97e-11                      Mean           3.06e-11
+                        Largest       Std. dev.      1.13e-11
+75%     3.58e-11       5.32e-11
+90%     4.50e-11       5.49e-11       Variance       1.28e-22
+95%     5.12e-11       5.65e-11       Skewness       .9111488
+99%     5.65e-11       7.71e-11       Kurtosis       4.867387
+
+                             e13
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .0345643       .0275131
+ 5%     .0424861       .0345643
+10%      .046099       .0352512       Obs                 101
+25%     .0531244       .0379382       Sum of wgt.         101
+
+50%     .0596898                      Mean             .06028
+                        Largest       Std. dev.      .0111997
+75%     .0686169        .078914
+90%     .0735219       .0800604       Variance       .0001254
+95%     .0759992       .0826724       Skewness      -.2837403
+99%     .0826724       .0860714       Kurtosis       2.908868
+
+                             e14
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -1.659913      -2.088273
+ 5%    -1.352604      -1.659913
+10%    -1.211336       -1.61591       Obs                 101
+25%    -1.009303      -1.591412       Sum of wgt.         101
+
+50%    -.8223789                      Mean           -.849888
+                        Largest       Std. dev.      .3142131
+75%    -.6450725      -.3618592
+90%    -.5080072      -.3057474       Variance       .0987298
+95%    -.4174393      -.2806153       Skewness      -.9053372
+99%    -.2806153      -.1791194       Kurtosis        4.88658
+
+                             e15
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.6714381       -.744557
+ 5%    -.6322031      -.6714381
+10%    -.6127337       -.656302       Obs                 101
+25%    -.5586714      -.6555635       Sum of wgt.         101
+
+50%    -.5121216                      Mean          -.5079776
+                        Largest       Std. dev.      .0861942
+75%    -.4506346      -.3099797
+90%    -.4112435      -.2965289       Variance       .0074294
+95%    -.3754249      -.2732815       Skewness       .3355026
+99%    -.2732815      -.2702055       Kurtosis       3.449515
+
+                             e16
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.1765633      -.1857345
+ 5%    -.1454701      -.1765633
+10%     -.138725        -.16507       Obs                 101
+25%    -.1236509      -.1526441       Sum of wgt.         101
+
+50%    -.0916908                      Mean          -.0924531
+                        Largest       Std. dev.      .0382805
+75%    -.0673782      -.0287104
+90%      -.04192      -.0167963       Variance       .0014654
+95%    -.0312726      -.0141233       Skewness        .101695
+99%    -.0141233       .0166737       Kurtosis        2.78294
+
+                             e17
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.0405206      -.0405513
+ 5%    -.0376979      -.0405206
+10%    -.0367978      -.0401285       Obs                 101
+25%    -.0327144      -.0391117       Sum of wgt.         101
+
+50%    -.0287489                      Mean          -.0288971
+                        Largest       Std. dev.      .0058318
+75%    -.0247305      -.0174737
+90%    -.0218566      -.0170442       Variance        .000034
+95%    -.0183344       -.016673       Skewness       .1113943
+99%     -.016673      -.0146525       Kurtosis       2.552295
+
+                             e18
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -7.64e-12      -8.95e-12
+ 5%    -2.25e-12      -7.64e-12
+10%    -6.99e-13      -4.62e-12       Obs                 101
+25%     2.37e-12      -3.81e-12       Sum of wgt.         101
+
+50%     5.59e-12                      Mean           5.94e-12
+                        Largest       Std. dev.      5.56e-12
+75%     9.91e-12       1.60e-11
+90%     1.22e-11       1.61e-11       Variance       3.09e-23
+95%     1.46e-11       2.07e-11       Skewness       .0815782
+99%     2.07e-11       2.21e-11       Kurtosis       3.296663
+
+                             e19
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.0456511      -.0479117
+ 5%    -.0430522      -.0456511
+10%     -.042075      -.0444495       Obs                 101
+25%    -.0375996      -.0435569       Sum of wgt.         101
+
+50%    -.0338334                      Mean          -.0342799
+                        Largest       Std. dev.      .0054658
+75%    -.0305639      -.0245449
+90%    -.0268275      -.0240854       Variance       .0000299
+95%    -.0256604      -.0235792       Skewness      -.1195526
+99%    -.0235792      -.0224024       Kurtosis       2.541272
+
+                             e20
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.4024911      -.4076102
+ 5%    -.3442765      -.4024911
+10%     -.316276      -.3869046       Obs                 101
+25%    -.2602921      -.3619303       Sum of wgt.         101
+
+50%     -.192349                      Mean          -.1742149
+                        Largest       Std. dev.      .1196378
+75%    -.1011457       .0959651
+90%    -.0168302       .0984819       Variance       .0143132
+95%     .0463029       .1010299       Skewness       .5352165
+99%     .1010299       .1683315       Kurtosis        2.95982
+
+                             e21
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     -.140578      -.1463669
+ 5%    -.1177227       -.140578
+10%    -.1132142      -.1315424       Obs                 101
+25%    -.1022752      -.1226265       Sum of wgt.         101
+
+50%    -.0805542                      Mean          -.0808523
+                        Largest       Std. dev.      .0267665
+75%    -.0630208      -.0367144
+90%    -.0458531      -.0286548       Variance       .0007164
+95%    -.0383089      -.0265655       Skewness        .101387
+99%    -.0265655      -.0037489       Kurtosis       2.812868
+
+                             e22
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -1.767643       -1.78238
+ 5%    -1.718841      -1.767643
+10%    -1.713292      -1.740967       Obs                 101
+25%    -1.690181      -1.738362       Sum of wgt.         101
+
+50%    -1.650932                      Mean          -1.651717
+                        Largest       Std. dev.      .0478213
+75%    -1.615637      -1.573952
+90%    -1.584943      -1.571656       Variance       .0022869
+95%    -1.577005      -1.547013       Skewness      -.1619642
+99%    -1.547013      -1.546141       Kurtosis       2.722865
+
+                             e23
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .0297918       .0296854
+ 5%     .0317876       .0297918
+10%     .0326118       .0304476       Obs                 101
+25%     .0344385       .0306542       Sum of wgt.         101
+
+50%     .0358313                      Mean           .0357814
+                        Largest       Std. dev.      .0024513
+75%     .0371454       .0399264
+90%     .0390825       .0399579       Variance       6.01e-06
+95%     .0398473       .0400731       Skewness      -.2421775
+99%     .0400731       .0408295       Kurtosis       2.762303
+
+                             e24
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -6.09e-12      -7.78e-12
+ 5%    -4.26e-12      -6.09e-12
+10%    -2.94e-12      -5.04e-12       Obs                 101
+25%    -7.14e-13      -4.66e-12       Sum of wgt.         101
+
+50%     1.37e-12                      Mean           1.16e-12
+                        Largest       Std. dev.      3.21e-12
+75%     3.02e-12       7.18e-12
+90%     4.82e-12       7.64e-12       Variance       1.03e-23
+95%     6.08e-12       9.18e-12       Skewness       .0348884
+99%     9.18e-12       1.05e-11       Kurtosis        3.41318
+
+                             e25
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.1211139      -.1214674
+ 5%    -.0988505      -.1211139
+10%    -.0834883      -.1081104       Obs                 101
+25%    -.0666228      -.1076901       Sum of wgt.         101
+
+50%     -.051714                      Mean            -.05189
+                        Largest       Std. dev.      .0256384
+75%      -.03469      -.0081789
+90%    -.0248767       -.007934       Variance       .0006573
+95%    -.0118107       .0000476       Skewness      -.3842258
+99%     .0000476       .0010341       Kurtosis       3.092187
+
+                             e26
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .2915417       .1071329
+ 5%     .6677166       .2915417
+10%     1.085567       .3743747       Obs                 101
+25%     1.721569       .4825383       Sum of wgt.         101
+
+50%     2.368268                      Mean           2.373511
+                        Largest       Std. dev.      .9884365
+75%     3.024457       4.355149
+90%     3.695347       4.409113       Variance       .9770066
+95%      4.31679       4.476198       Skewness       .1117253
+99%     4.476198       4.906917       Kurtosis       2.955116
+
+                             e27
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -1.306521      -1.306528
+ 5%    -1.229084      -1.306521
+10%    -1.201918      -1.292112       Obs                 101
+25%     -1.09429      -1.265894       Sum of wgt.         101
+
+50%    -.9892187                      Mean           -.992579
+                        Largest       Std. dev.       .156061
+75%    -.8820831      -.6878419
+90%    -.8030894      -.6741084       Variance        .024355
+95%    -.7076731      -.6695598       Skewness       .1045714
+99%    -.6695598      -.6145843       Kurtosis       2.551427
+
+                             e28
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     1.043625       1.040639
+ 5%     1.116881       1.043625
+10%     1.150734       1.072653       Obs                 101
+25%     1.218217       1.078049       Sum of wgt.         101
+
+50%     1.274654                      Mean           1.271531
+                        Largest       Std. dev.      .0928783
+75%     1.323335       1.427392
+90%     1.397435       1.429305       Variance       .0086264
+95%     1.424219       1.432082       Skewness      -.2436514
+99%     1.432082       1.463736       Kurtosis       2.762539
+
+                             e29
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.3394094       -.341059
+ 5%     -.330218      -.3394094
+10%    -.3277565      -.3349307       Obs                 101
+25%    -.3200597      -.3337604       Sum of wgt.         101
+
+50%    -.3092244                      Mean          -.3099025
+                        Largest       Std. dev.       .013527
+75%    -.3005701      -.2858193
+90%    -.2921376      -.2848253       Variance        .000183
+95%    -.2892026      -.2824271       Skewness      -.0808669
+99%    -.2824271      -.2789348       Kurtosis        2.44792
+
+                             e30
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -1.31e-10      -1.47e-10
+ 5%    -1.22e-10      -1.31e-10
+10%    -1.09e-10      -1.27e-10       Obs                 101
+25%    -1.01e-10      -1.27e-10       Sum of wgt.         101
+
+50%    -8.58e-11                      Mean          -8.21e-11
+                        Largest       Std. dev.      2.55e-11
+75%    -6.30e-11      -2.98e-11
+90%    -5.25e-11      -2.78e-11       Variance       6.49e-22
+95%    -3.46e-11      -2.08e-11       Skewness       .2289172
+99%    -2.08e-11      -2.00e-11       Kurtosis       2.808169
+
+                             e31
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.0274269      -.0407268
+ 5%    -.0243068      -.0274269
+10%     -.015499      -.0271574       Obs                 101
+25%     .0016481      -.0257401       Sum of wgt.         101
+
+50%       .01629                      Mean           .0179615
+                        Largest       Std. dev.      .0264782
+75%     .0312035       .0754585
+90%     .0518246       .0807919       Variance       .0007011
+95%     .0725737       .0831371       Skewness       .4737004
+99%     .0831371       .0917841       Kurtosis       3.244287
+
+                             e32
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     -3.64724      -4.836303
+ 5%    -3.384981       -3.64724
+10%    -2.828804      -3.526086       Obs                 101
+25%     -2.38816      -3.514415       Sum of wgt.         101
+
+50%    -1.969677                      Mean          -2.032415
+                        Largest       Std. dev.      .6863662
+75%    -1.572788      -.9584514
+90%     -1.26114      -.8890959       Variance       .4710985
+95%    -1.119994      -.8614354       Skewness       -.933826
+99%    -.8614354      -.4701126       Kurtosis       4.991731
+
+                             e33
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.1703624      -.1848383
+ 5%    -.1143656      -.1703624
+10%    -.0865911       -.154205       Obs                 101
+25%    -.0319562      -.1240814       Sum of wgt.         101
+
+50%     .0167815                      Mean           .0164606
+                        Largest       Std. dev.      .0824707
+75%     .0639961        .158123
+90%     .1212754       .1786515       Variance       .0068014
+95%     .1552654       .2493784       Skewness        .237492
+99%     .2493784        .258067       Kurtosis       3.378699
+
+                             e34
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%    -.2307047      -.2578586
+ 5%    -.1662371      -.2307047
+10%    -.1613765      -.2043695       Obs                 101
+25%    -.0968008      -.1945911       Sum of wgt.         101
+
+50%    -.0717822                      Mean          -.0670461
+                        Largest       Std. dev.      .0637803
+75%    -.0333434       .0577715
+90%     .0060888       .0610443       Variance       .0040679
+95%     .0349669        .078735       Skewness      -.1701154
+99%      .078735       .1033732       Kurtosis       3.704484
+
+                             e35
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%     .0053397       .0013149
+ 5%     .0099472       .0053397
+10%     .0202455       .0065601       Obs                 101
+25%     .0260191       .0076314       Sum of wgt.         101
+
+50%     .0369088                      Mean           .0354603
+                        Largest       Std. dev.       .013243
+75%     .0450683       .0571695
+90%     .0505728       .0581013       Variance       .0001754
+95%     .0554695       .0582932       Skewness      -.2488776
+99%     .0582932       .0704072       Kurtosis       2.843693
+
+                             e36
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%           -1             -1
+ 5%           -1             -1
+10%           -1             -1       Obs                 101
+25%           -1             -1       Sum of wgt.         101
+
+50%           -1                      Mean                 -1
+                        Largest       Std. dev.             0
+75%           -1             -1
+90%           -1             -1       Variance              0
+95%           -1             -1       Skewness              .
+99%           -1             -1       Kurtosis              .
+
+. log close
+      name:  <unnamed>
+       log:  H:\My Drive\Research\Proesa - 22-1002-PahoElasSsb\Code\Model\Tobacconomics\bstrapDemand.log
+  log type:  text
+ closed on:  10 Apr 2023, 08:03:17
+-----------------------------------------------------------------------------------------------------------------------------------

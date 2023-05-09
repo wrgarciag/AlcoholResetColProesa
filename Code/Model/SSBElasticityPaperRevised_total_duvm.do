@@ -150,20 +150,26 @@ foreach i of local luvs {
 }
 
 * Modelo 1
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100) hgroup(Tercil)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100) hgroup(Tercil) dec(4)
 
 * Modelo 2 Sin censura
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(0) dregres(0) boot(100)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(0) dregres(0) boot(100) dec(4)
 
 * Modelo 3 Sin Fex
 gen fex2=1
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(fex2) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(0) boot(100)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(fex2) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(0) boot(100) dec(4)
 
 * Modelo 4 Sin region
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(0) boot(100)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(0) boot(100) dec(4)
+
+* Modelo 6 Solo urbano
+preserve
+keep if x3==0
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100) dec(4)
+restore
 
 * Modelo 5 Solo codificado
-do "$pcode\SSBElasticityPaperRevised_total_codi_duvm.do"
+do "$pcodeM\SSBElasticityPaperRevised_total_codi_duvm.do"
 
 log close
 

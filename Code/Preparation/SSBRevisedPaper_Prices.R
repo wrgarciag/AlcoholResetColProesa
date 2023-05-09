@@ -12,7 +12,9 @@ RuralTotal  <- readRDS(file = paste0(wdd_out,"DtConsuRuralTotal",".rds"))
 
 total_2 <- rbind(UrbanoTotal,RuralTotal)
 
-Data[,Cluster:=substr(VIVIENDA,1,8)]
+Data[,Cluster:=substr(VIVIENDA,1,9)]
+clus <- Data[,list(N=.N),by=list(Cluster)]
+summary(clus)
 
 # Logaritmo para incluir el ingreso en las regresiones
 Data[,IT:=log(IT)]

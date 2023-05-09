@@ -151,7 +151,7 @@ foreach i of local luvs {
 }
 
 * Modelo 1
-duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100) hgroup(Tercil)
+duvm ssb bee spi wat day, hhsize(x4) expend(exptotal) hweight(FEX_C) cluster(psu) region(xregion) indcat(x1 x5 x6 x7 x8 x9) indcon(x2) csb(1) dregres(1) boot(100) hgroup(Tercil) dec(4)
 
 /*
 * Modelo 2 Sin censura
